@@ -16,6 +16,7 @@ concurrency:
 permissions:
   contents: write
   issues: write
+  packages: read
 
 jobs:
   # Keep the name short, so that branch (the first matrix param) is fully readable in GHA UI 
@@ -134,46 +135,14 @@ jobs:
         fi
         git push origin ${{ matrix.branch }} -f
 
-    - name: Reopen issue https://github.com/${{ github.repository }}/issues/${{ matrix.issue-id }}
-      if: ${{ steps.rebase-integration-branch.outputs.exit-status == 'success' && failure() }}
-      shell: bash
-      run: |
-        oldState=$(gh issue view ${{ matrix.issue-id }} --json state -q .state -R ${{ github.repository }})
-        echo "oldState = $oldState"
-        msg="❌ Build with ${{ matrix.dependency-short-name }} ${{ steps.rebase-integration-branch.outputs.dependency-commit }} failed in ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        echo "exit-status=${{ steps.build-and-run-jvm-tests.outputs.exit-status }}"
-        echo "FAILURE_DETAILS_FILE=$FAILURE_DETAILS_FILE"
-        if [ -f ~/build-data/exit-message ]; then
-          msg="$(printf '%s\n\n%s' "${msg}" "$(cat ~/build-data/exit-message)")"
-        fi
-        if [[ "$oldState" == "OPEN" ]] ; then
-          gh issue comment \
-            --repo ${{ github.repository }} \
-            --body "$msg" \
-            ${{ matrix.issue-id }}
-        else
-          gh issue reopen \
-            --repo ${{ github.repository }} \
-            --comment "$msg" \
-            ${{ matrix.issue-id }}
-        fi
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        FAILURE_DETAILS_FILE: ${{ steps.build-and-run-jvm-tests.outputs.exit-message-path }}
-
-    - name: Close issue https://github.com/${{ github.repository }}/issues/${{ matrix.issue-id }}
-      if: ${{ success() }}
-      shell: bash
-      run: |
-        oldState=$(gh issue view ${{ matrix.issue-id }} --json state -q .state -R ${{ github.repository }})
-        echo "oldState = $oldState"
-        msg="✅ Build with ${{ matrix.dependency-short-name }} ${{ steps.rebase-integration-branch.outputs.dependency-commit }} succeeded in ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        if [[ "$oldState" != "CLOSED" ]] ; then
-          gh issue close \
-            --repo ${{ github.repository }} \
-            --comment "$msg" \
-            ${{ matrix.issue-id }}
-        fi
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Report status in issue https://github.com/${{ github.repository }}/issues/${{ matrix.issue-id }}
+      if: always()
+      uses: quarkusio/report-status-in-issue@main
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        status: ${{ job.status }}
+        issue-repository: quarkiverse/quarkus-cxf
+        issue-number: ${{ matrix.issue-id }}
+        project-sha: ${{ github.sha }}
+        quarkus-sha: ${{ matrix.dependency-short-name == 'quarkus' && steps.rebase-integration-branch.outputs.dependency-commit || '' }}
 
